@@ -1,10 +1,9 @@
-# File: src/02_train_model.py
-
-import numpy as np
-import tensorflow as tf
-from tensorflow.keras import layers, models
-from sklearn.model_selection import train_test_split
-import matplotlib.pyplot as plt
+import numpy as np                                          # type: ignore
+import tensorflow as tf                                     # type: ignore
+from tensorflow.keras import layers, models                 # type: ignore
+from sklearn.model_selection import train_test_split        # type: ignore
+from sklearn.utils import class_weight                      # type: ignore
+import matplotlib.pyplot as plt                             # type: ignore
 import os
 
 # --- Configuration ---
@@ -25,32 +24,45 @@ def load_data():
     return X, y
 
 def build_multi_head_cnn(input_shape, num_classes=3):
-    """Builds a multi-head 2D CNN model."""
+    """Builds a deeper, stable multi-head 2D CNN model."""
     inputs = layers.Input(shape=input_shape)
-    
-    # Common Feature Extractor
+
+    # --- Common Feature Extractor Body ---
+    # Block 1
     x = layers.Conv2D(32, (3, 3), activation='relu', padding='same')(inputs)
     x = layers.BatchNormalization()(x)
     x = layers.MaxPooling2D((2, 2))(x)
+
+    # Block 2
     x = layers.Conv2D(64, (3, 3), activation='relu', padding='same')(x)
     x = layers.BatchNormalization()(x)
     x = layers.MaxPooling2D((2, 2))(x)
+
+    # Block 3
     x = layers.Conv2D(128, (3, 3), activation='relu', padding='same')(x)
     x = layers.BatchNormalization()(x)
     x = layers.MaxPooling2D((2, 2))(x)
-    x = layers.Flatten()(x)
-    x = layers.Dropout(0.5)(x)
+    
+    # NEW Block 4 - Gives the model more learning capacity
+    x = layers.Conv2D(256, (3, 3), activation='relu', padding='same')(x)
+    x = layers.BatchNormalization()(x)
+    x = layers.MaxPooling2D((2, 2))(x)
 
-    # Output Heads
+    # Flatten for the dense layers
+    x = layers.Flatten()(x)
+    x = layers.Dropout(0.5)(x) # Use 0.5 dropout for this deeper model
+
+    # --- Output Heads ---
     output_heads = []
     head_names = ['rotor1', 'rotor2', 'rotor3', 'rotor4']
+
     for i in range(4):
-        head = layers.Dense(64, activation='relu')(x)
-        head = layers.Dropout(0.3)(head)
+        head = layers.Dense(128, activation='relu')(x) # Slightly larger dense layer
+        head = layers.Dropout(0.5)(head)
         output = layers.Dense(num_classes, activation='softmax', name=head_names[i])(head)
         output_heads.append(output)
 
-    model = models.Model(inputs=inputs, outputs=output_heads, name="uav_fault_cnn")
+    model = models.Model(inputs=inputs, outputs=output_heads, name="uav_fault_deep_cnn")
     return model
 
 def plot_training_history(history):
@@ -97,64 +109,83 @@ def plot_training_history(history):
     plt.show()
 
 def main():
-    """Main function to run the training pipeline."""
+    """Main function to run the training pipeline with SAMPLE weights for class imbalance."""
     X, y = load_data()
 
-    # Prepare labels for multi-task output
-    y_prepared = [tf.keras.utils.to_categorical(y[:, i], num_classes=3) for i in range(4)]
+    # --- Step 1: Calculate class weights ---
+    class_weights_per_output = []
+    for i in range(4):
+        weights = class_weight.compute_class_weight(
+            'balanced',
+            classes=np.unique(y[:, i]),
+            y=y[:, i]
+        )
+        class_weights_per_output.append(dict(enumerate(weights)))
 
-    # Split data into training, validation, and test sets
-    X_train, X_temp, y_train_temp, y_test_temp = train_test_split(X, list(zip(*y_prepared)), test_size=0.3, random_state=42)
-    X_val, X_test, y_val_temp, y_test_temp = train_test_split(X_temp, y_test_temp, test_size=0.5, random_state=42)
-    
-    # Unzip the list of tuples back into lists of arrays
-    y_train = [np.array(arr) for arr in zip(*y_train_temp)]
-    y_val = [np.array(arr) for arr in zip(*y_val_temp)]
-    y_test = [np.array(arr) for arr in zip(*y_test_temp)]
+    print("Calculated Class Weights:")
+    for i, w in enumerate(class_weights_per_output):
+        print(f"  Rotor {i+1}: {w}")
+
+    # --- Step 2: Split the data ---
+    X_train, X_temp, y_train_raw, y_temp_raw = train_test_split(
+        X, y, test_size=0.3, random_state=42
+    )
+    X_val, X_test, y_val_raw, y_test_raw = train_test_split(
+        X_temp, y_temp_raw, test_size=0.5, random_state=42
+    )
+
+    # --- Step 3: Compute sample weights for the training set ---
+    # We will build a list directly this time.
+    sample_weights_list = []
+    for i in range(4):
+        rotor_class_weights = class_weights_per_output[i]
+        rotor_sample_weights = np.array([rotor_class_weights[label] for label in y_train_raw[:, i]])
+        sample_weights_list.append(rotor_sample_weights)
+        
+    print(f"\nCreated sample weights list for {len(X_train)} training samples.")
+
+    # --- Step 4: One-hot encode the labels ---
+    y_train = [tf.keras.utils.to_categorical(y_train_raw[:, i], num_classes=3) for i in range(4)]
+    y_val = [tf.keras.utils.to_categorical(y_val_raw[:, i], num_classes=3) for i in range(4)]
+    y_test = [tf.keras.utils.to_categorical(y_test_raw[:, i], num_classes=3) for i in range(4)]
 
     print(f"Training set size: {len(X_train)}")
     print(f"Validation set size: {len(X_val)}")
     print(f"Test set size: {len(X_test)}")
 
-    # Build and compile the model
+    # Build and compile model
     input_shape = X_train.shape[1:]
     model = build_multi_head_cnn(input_shape)
-    # model.compile(optimizer='adam', loss='categorical_crossentropy', metrics=['accuracy'])
-    model.compile(  optimizer='adam', 
-                    loss='categorical_crossentropy', # Keras applies this loss to all outputs
-                    metrics={
-                        'rotor1': 'accuracy',
-                        'rotor2': 'accuracy',
-                        'rotor3': 'accuracy',
-                        'rotor4': 'accuracy'
-                })
+    model.compile(optimizer=tf.keras.optimizers.Adam(learning_rate=0.0001), 
+                  loss='categorical_crossentropy',
+                  metrics={'rotor1': 'accuracy', 'rotor2': 'accuracy', 'rotor3': 'accuracy', 'rotor4': 'accuracy'})
     model.summary()
 
-    # Train the model
-    EPOCHS = 30
+    # Define callbacks
+    early_stopping = tf.keras.callbacks.EarlyStopping(monitor='val_loss', patience=10, restore_best_weights=True)
+    reduce_lr = tf.keras.callbacks.ReduceLROnPlateau(monitor='val_loss', factor=0.2, patience=3, min_lr=0.00001)
+
+    # --- MODIFIED: TRAIN WITH A LIST of sample_weights ---
+    EPOCHS = 50
     BATCH_SIZE = 32
     history = model.fit(
         X_train, y_train,
         validation_data=(X_val, y_val),
         epochs=EPOCHS,
         batch_size=BATCH_SIZE,
-        callbacks=[tf.keras.callbacks.EarlyStopping(monitor='val_loss', patience=5, restore_best_weights=True)] # Added for better training
+        callbacks=[early_stopping, reduce_lr],
+        sample_weight=sample_weights_list
     )
 
-    # Save the trained model
+    # Save and evaluate (the rest of the script is the same)
     model.save(os.path.join(MODEL_SAVE_DIR, 'uav_fault_model.keras'))
-    print(f"Model saved to {MODEL_SAVE_DIR}")
+    
+    # ... evaluation logic ...
+    print("\n--- Evaluating on Test Set ---")
+    test_results = model.evaluate(X_test, y_test, return_dict=True)
+    print(test_results)
 
-    # Evaluate on the test set
-    test_loss, _, _, _, _, test_acc1, test_acc2, test_acc3, test_acc4 = model.evaluate(X_test, y_test)
-    print(f"\nTest Accuracy for Rotor 1: {test_acc1:.4f}")
-    print(f"Test Accuracy for Rotor 2: {test_acc2:.4f}")
-    print(f"Test Accuracy for Rotor 3: {test_acc3:.4f}")
-    print(f"Test Accuracy for Rotor 4: {test_acc4:.4f}")
-    print(f"Average Test Accuracy: {np.mean([test_acc1, test_acc2, test_acc3, test_acc4]):.4f}")
-
-
-    # Plot training history
+    # ... plotting logic ...
     plot_training_history(history)
 
 if __name__ == '__main__':
