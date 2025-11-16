@@ -53,8 +53,8 @@ def process_data():
 
     X = []
     y = []
+    metadata_filenames = [] # This list will now be populated correctly
 
-    # --- Helper function to avoid repeating code ---
     def chunk_to_spec(chunk):
         all_channels_mel = []
         for channel in range(chunk.shape[0]):
@@ -79,60 +79,60 @@ def process_data():
                 # Process and add the ORIGINAL chunk
                 X.append(chunk_to_spec(original_chunk))
                 y.append(encoded_labels)
+                metadata_filenames.append(file_path) # Append metadata
 
                 # If it's a training file, add AUGMENTED versions
                 if is_training_file:
-                    # --- AUGMENTATION 1: NOISE (In-line) ---
-                    # The fix is here: generate noise with the same shape as the chunk
+                    # --- AUGMENTATION 1: NOISE ---
                     noise = np.random.randn(*original_chunk.shape) * 0.005 
                     chunk_noisy = original_chunk + noise
                     chunk_noisy = chunk_noisy.astype(type(original_chunk[0,0]))
                     X.append(chunk_to_spec(chunk_noisy))
                     y.append(encoded_labels)
+                    metadata_filenames.append(file_path) # <-- THE FIX IS HERE
 
-                    # --- AUGMENTATION 2: PITCH SHIFT (In-line) ---
+                    # --- AUGMENTATION 2: PITCH SHIFT ---
                     chunk_pitch_shifted = librosa.effects.pitch_shift(y=original_chunk, sr=sr, n_steps=0.5)
-                    # Ensure length is consistent
                     if chunk_pitch_shifted.shape[1] != original_chunk.shape[1]:
                         pad_width = original_chunk.shape[1] - chunk_pitch_shifted.shape[1]
                         chunk_pitch_shifted = np.pad(chunk_pitch_shifted, pad_width=((0,0), (0, pad_width)), mode='constant')
-                    
                     X.append(chunk_to_spec(chunk_pitch_shifted))
                     y.append(encoded_labels)
+                    metadata_filenames.append(file_path) # <-- AND THE FIX IS HERE
         
         except Exception as e:
             print(f"\nError processing {file_path}: {e}")
 
     X = np.array(X)
     y = np.array(y)
+    metadata_filenames = np.array(metadata_filenames)
 
     print(f"\nFinished processing.")
     print(f"Shape of our new augmented data (X): {X.shape}")
     print(f"Shape of our new labels (y): {y.shape}")
+    print(f"Shape of our new metadata: {metadata_filenames.shape}") # This should now match
 
     np.save(os.path.join(OUTPUT_DIR, 'X_data.npy'), X)
     np.save(os.path.join(OUTPUT_DIR, 'y_labels.npy'), y)
-    print(f"Data saved to {OUTPUT_DIR}")
+    np.save(os.path.join(OUTPUT_DIR, 'metadata_filenames.npy'), metadata_filenames)
+    print(f"Data and metadata saved to {OUTPUT_DIR}")
 
     return X
 
+# ... (visualize_sample and if __name__ == '__main__' parts remain the same)
 def visualize_sample(X_data):
-    """Plots a sanity-check visualization of one sample."""
     if len(X_data) == 0:
         print("No data to visualize.")
         return
-        
     print("\nVisualizing one sample for a sanity check...")
     sample_data = X_data[0]
     fig, axs = plt.subplots(2, 2, figsize=(15, 8))
     fig.suptitle('Spectrograms for a Single 4-Second Chunk')
-    
     for i in range(4):
         ax = axs[i // 2, i % 2]
         img = librosa.display.specshow(sample_data[:, :, i], sr=SAMPLE_RATE, hop_length=HOP_LENGTH, x_axis='time', y_axis='mel', ax=ax)
         fig.colorbar(img, ax=ax, format='%+2.0f dB')
         ax.set_title(f'Rotor {i+1} (Mic Channel {i})')
-    
     plt.tight_layout()
     plt.show()
 
