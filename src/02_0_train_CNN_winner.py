@@ -7,8 +7,8 @@ import matplotlib.pyplot as plt                             # type: ignore
 import os
 
 # --- Configuration ---
-# PROCESSED_DATA_DIR = 'processed_data/'
-PROCESSED_DATA_DIR = 'processed_data_mics_02/'
+PROCESSED_DATA_DIR = 'processed_data/'
+# PROCESSED_DATA_DIR = 'processed_data_mics_02/'
 MODEL_SAVE_DIR = 'saved_models/'
 
 # Create the output directory if it doesn't exist

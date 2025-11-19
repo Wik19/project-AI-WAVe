@@ -7,8 +7,8 @@ import matplotlib.pyplot as plt
 from sklearn.model_selection import train_test_split
 
 # --- CONFIGURATION: POINT THIS TO THE CORRECT DATA FOLDER ---
-PROCESSED_DATA_DIR = 'processed_data_mics_23/'
-MODEL_PATH = 'saved_models/uav_fault_model.keras'
+PROCESSED_DATA_DIR = 'processed_data_mics_02/'
+MODEL_PATH = 'saved_models/uav_fault_model_02.keras'
 
 def load_data():
     """Loads the preprocessed data from the specified directory."""

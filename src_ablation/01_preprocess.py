@@ -16,7 +16,7 @@ AUDIO_DIR = 'data/'
 # [0, 1, 2, 3] -> All four microphones (baseline)
 # [0]          -> Only the first microphone
 # [0, 2]       -> Microphones 1 and 3
-MIC_CHANNELS_TO_USE = [3, 0]
+MIC_CHANNELS_TO_USE = [0, 2]
 
 # Automatically create a unique output directory based on the channels used
 output_folder_name = "mics_" + "".join(map(str, MIC_CHANNELS_TO_USE))
